@@ -1,7 +1,8 @@
 import { loadCommand } from "@/lib/commands";
 import { loadTemplate } from "@/lib/templates";
-import { buildAgentPrompt, runCommand } from "@/lib/agent-runner";
+import { buildAgentPrompt, runCommand, type StreamMessage } from "@/lib/agent-runner";
 import { buildProjectContext } from "@/lib/project-context";
+import { captureArtifactsFromMessage } from "@/lib/artifact-capture";
 import { db } from "@/db";
 import { projects, artifacts } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -63,18 +64,39 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
+        const capturedArtifacts: Array<{
+          documentId: string;
+          documentType: string;
+          title: string;
+        }> = [];
+
         const result = await runCommand({
           commandName,
           prompt: fullPrompt,
           apiKey,
           model,
-          onMessage: (message) => {
+          onMessage: (message: StreamMessage) => {
+            // Forward the message to the client via SSE
             const data = `data: ${JSON.stringify(message)}\n\n`;
             controller.enqueue(encoder.encode(data));
+
+            // Capture any ArcKit artifacts written by the agent
+            const arts = captureArtifactsFromMessage(message);
+            for (const art of arts) {
+              capturedArtifacts.push({
+                documentId: art.documentId,
+                documentType: art.documentType,
+                title: art.title,
+              });
+            }
           },
         });
 
-        const done = `data: ${JSON.stringify({ type: "done", result })}\n\n`;
+        const done = `data: ${JSON.stringify({
+          type: "done",
+          result,
+          artifacts: capturedArtifacts,
+        })}\n\n`;
         controller.enqueue(encoder.encode(done));
       } catch (error: unknown) {
         const errMsg = `data: ${JSON.stringify({
