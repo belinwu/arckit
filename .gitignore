@@ -83,8 +83,9 @@ arckit-gemini/docs/
 docs/articles/
 .tmp*
 
-# ArcKit Web - unignore src/lib/ (caught by Python lib/ rule above)
+# ArcKit Web - unignore paths caught by broader rules above
 !arckit-web/src/lib/
+!arckit-web/src/app/api/projects/
 
 # Git worktrees
 .worktrees/
