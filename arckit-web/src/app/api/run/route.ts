@@ -1,13 +1,9 @@
 import { loadCommand } from "@/lib/commands";
 import { loadTemplate } from "@/lib/templates";
 import { buildAgentPrompt, runCommand } from "@/lib/agent-runner";
-import { buildProjectContext } from "@/lib/project-context";
-import { db } from "@/db";
-import { projects, artifacts } from "@/db/schema";
-import { eq } from "drizzle-orm";
 
 export async function POST(req: Request) {
-  const { commandName, userInput, apiKey, projectId, model } = await req.json();
+  const { commandName, userInput, apiKey, model } = await req.json();
 
   if (!commandName || !userInput || !apiKey) {
     return new Response(JSON.stringify({ error: "Missing required fields" }), {
@@ -29,33 +25,7 @@ export async function POST(req: Request) {
 
   // Load template if one exists for this command
   const template = loadTemplate(commandName);
-
-  // Build project context from database
-  const allProjects = await db.select().from(projects);
-  const allArtifacts = projectId
-    ? await db
-        .select()
-        .from(artifacts)
-        .where(eq(artifacts.projectId, projectId))
-    : await db.select().from(artifacts);
-
-  const projectContext = buildProjectContext(
-    allProjects.map((p) => ({
-      projectId: p.projectId,
-      slug: p.slug,
-      displayName: p.displayName,
-    })),
-    allArtifacts.map((a) => ({
-      projectId: a.projectId,
-      documentId: a.documentId,
-      documentType: a.documentType,
-    })),
-    "3.1.0"
-  );
-
-  // Build full prompt: project context + command prompt + template
-  let fullPrompt = buildAgentPrompt(command.prompt, userInput, template);
-  fullPrompt = `${projectContext}\n\n---\n\n${fullPrompt}`;
+  const fullPrompt = buildAgentPrompt(command.prompt, userInput, template);
 
   // Stream response via SSE
   const encoder = new TextEncoder();
@@ -68,7 +38,6 @@ export async function POST(req: Request) {
           apiKey,
           model,
           onMessage: (message) => {
-            // Forward the message to the client via SSE
             const data = `data: ${JSON.stringify(message)}\n\n`;
             controller.enqueue(encoder.encode(data));
           },

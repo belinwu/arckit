@@ -11,40 +11,18 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FolderOpen } from "lucide-react";
-
-interface Project {
-  id: number;
-  projectId: string;
-  name: string;
-  slug: string;
-  displayName: string;
-  createdAt: string;
-  updatedAt: string;
-}
+import { getProjects, type Project } from "@/lib/store";
 
 export function ProjectList() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    fetchProjects();
+    setProjects(getProjects());
+    setReady(true);
   }, []);
 
-  async function fetchProjects() {
-    try {
-      const res = await fetch("/api/projects");
-      if (!res.ok) throw new Error("Failed to load projects");
-      const data = await res.json();
-      setProjects(data.projects);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load projects");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (loading) {
+  if (!ready) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[1, 2, 3].map((i) => (
@@ -55,14 +33,6 @@ export function ProjectList() {
             </CardHeader>
           </Card>
         ))}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-        {error}
       </div>
     );
   }

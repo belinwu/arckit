@@ -4,27 +4,13 @@ import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { hasApiKey } from "@/lib/api-key-store";
+import { getProject, getArtifacts, type Artifact } from "@/lib/store";
 import { CommandPicker } from "@/components/command-picker";
 import { CommandRunner } from "@/components/command-runner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, FileText } from "lucide-react";
-
-interface Project {
-  projectId: string;
-  name: string;
-  slug: string;
-  displayName: string;
-  createdAt: string;
-}
-
-interface Artifact {
-  documentId: string;
-  documentType: string;
-  title: string;
-  status: string;
-}
 
 interface SelectedCommand {
   name: string;
@@ -39,7 +25,7 @@ export default function ProjectPage({
 }) {
   const { projectId } = use(params);
   const router = useRouter();
-  const [project, setProject] = useState<Project | null>(null);
+  const [projectName, setProjectName] = useState<string | null>(null);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,19 +38,16 @@ export default function ProjectPage({
       return;
     }
 
-    fetch(`/api/projects/${projectId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Project not found");
-        return res.json();
-      })
-      .then((data) => {
-        setProject(data.project);
-        setArtifacts(data.artifacts || []);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load project");
-      })
-      .finally(() => setLoading(false));
+    const project = getProject(projectId);
+    if (!project) {
+      setError("Project not found");
+      setLoading(false);
+      return;
+    }
+
+    setProjectName(project.displayName);
+    setArtifacts(getArtifacts(projectId));
+    setLoading(false);
   }, [projectId, router]);
 
   if (loading) {
@@ -76,7 +59,7 @@ export default function ProjectPage({
     );
   }
 
-  if (error || !project) {
+  if (error || !projectName) {
     return (
       <main className="mx-auto max-w-7xl px-4 py-8">
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
@@ -104,9 +87,9 @@ export default function ProjectPage({
         </Link>
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">
-            {project.displayName}
+            {projectName}
           </h1>
-          <Badge variant="secondary">{project.projectId}</Badge>
+          <Badge variant="secondary">{projectId}</Badge>
         </div>
 
         {/* Artifact badges */}

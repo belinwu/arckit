@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { getApiKey } from "@/lib/api-key-store";
+import { parseDocumentId, titleForDoc } from "@/lib/artifact-capture";
+import { saveArtifact } from "@/lib/store";
 import { Play, Square, Loader2 } from "lucide-react";
 
 interface CommandRunnerProps {
@@ -40,6 +42,7 @@ export function CommandRunner({
   const abortRef = useRef<AbortController | null>(null);
   const outputEndRef = useRef<HTMLDivElement>(null);
   const idCounter = useRef(0);
+  const fullTextRef = useRef("");
 
   const scrollToBottom = useCallback(() => {
     outputEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -61,6 +64,26 @@ export function CommandRunner({
     ]);
   }
 
+  /**
+   * After a command finishes, attempt to parse the full output as an
+   * ArcKit artifact and save it to localStorage.
+   */
+  function trySaveArtifact(text: string) {
+    const parsed = parseDocumentId(text);
+    if (!parsed) return;
+
+    saveArtifact({
+      projectId: parsed.projectId || projectId,
+      documentId: parsed.documentId,
+      documentType: parsed.documentType,
+      title: titleForDoc(parsed),
+      content: text,
+      status: "DRAFT",
+      version: parsed.version,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   async function handleRun() {
     const apiKey = getApiKey();
     if (!apiKey) return;
@@ -70,6 +93,7 @@ export function CommandRunner({
     setRunning(true);
     setOutput([]);
     idCounter.current = 0;
+    fullTextRef.current = "";
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -130,6 +154,11 @@ export function CommandRunner({
           }
         }
       }
+
+      // Try to save the full output as an artifact
+      if (fullTextRef.current) {
+        trySaveArtifact(fullTextRef.current);
+      }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
         addEntry("text", "Command cancelled.");
@@ -149,24 +178,15 @@ export function CommandRunner({
     const type = data.type as string;
 
     if (type === "assistant") {
-      const message = data.message as {
-        content: Array<{
-          type: string;
-          text?: string;
-          name?: string;
-        }>;
-      };
-      if (message?.content) {
-        for (const block of message.content) {
-          if (block.type === "text" && block.text) {
-            addEntry("text", block.text);
-          } else if (block.type === "tool_use" && block.name) {
-            addEntry("tool", `Using tool: ${block.name}`);
-          }
-        }
+      const text = data.text as string | undefined;
+      if (text) {
+        fullTextRef.current += text;
+        addEntry("text", text);
       }
     } else if (type === "result") {
-      addEntry("result", (data.result as string) || "Done.", {
+      const result = (data.result as string) || "";
+      if (result) fullTextRef.current = result;
+      addEntry("result", result || "Done.", {
         cost_usd: data.cost_usd as number,
         duration_ms: data.duration_ms as number,
         num_turns: data.num_turns as number,
@@ -174,6 +194,7 @@ export function CommandRunner({
     } else if (type === "done") {
       // Final done event from our API wrapper
       if (typeof data.result === "string" && data.result) {
+        fullTextRef.current = data.result;
         addEntry("result", data.result);
       }
     } else if (type === "error") {

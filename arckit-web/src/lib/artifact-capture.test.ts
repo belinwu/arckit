@@ -1,24 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   parseDocumentId,
   titleForDoc,
   extractWriteCalls,
-  captureArtifactsFromMessage,
   type ParsedDocId,
   type StreamMessage,
   type AssistantMessage,
 } from "./artifact-capture";
-
-// ---------------------------------------------------------------------------
-// Mock the database so tests don't require SQLite
-// ---------------------------------------------------------------------------
-vi.mock("@/db", () => ({
-  db: {
-    insert: () => ({
-      values: () => Promise.resolve(),
-    }),
-  },
-}));
 
 // ---------------------------------------------------------------------------
 // parseDocumentId
@@ -223,99 +211,5 @@ describe("extractWriteCalls", () => {
 
     const writes = extractWriteCalls(msg);
     expect(writes).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// captureArtifactsFromMessage (integration of extract + parse + save)
-// ---------------------------------------------------------------------------
-
-describe("captureArtifactsFromMessage", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("captures an artifact from a Write tool call with an ArcKit filename", async () => {
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            input: {
-              file_path:
-                "/projects/001-payment-gateway/ARC-001-REQ-v1.0.md",
-              content: "# Requirements\n\n## Business Requirements\n...",
-            },
-          },
-        ],
-      },
-    };
-
-    const captured = await captureArtifactsFromMessage(msg);
-    expect(captured).toHaveLength(1);
-    expect(captured[0]).toMatchObject({
-      projectId: "001",
-      documentId: "ARC-001-REQ-v1.0",
-      documentType: "REQ",
-      title: "Requirements Specification (Project 001)",
-    });
-    // Content should be preserved
-    expect(captured[0].content).toContain("Business Requirements");
-  });
-
-  it("ignores Write calls to non-ArcKit files", async () => {
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            input: {
-              file_path: "/tmp/notes.md",
-              content: "Just some notes",
-            },
-          },
-        ],
-      },
-    };
-
-    const captured = await captureArtifactsFromMessage(msg);
-    expect(captured).toHaveLength(0);
-  });
-
-  it("handles result messages gracefully", async () => {
-    const msg: StreamMessage = {
-      type: "result",
-      result: "All done",
-    };
-
-    const captured = await captureArtifactsFromMessage(msg);
-    expect(captured).toHaveLength(0);
-  });
-
-  it("captures multi-instance document with sequence number", async () => {
-    const msg: AssistantMessage = {
-      type: "assistant",
-      message: {
-        content: [
-          {
-            type: "tool_use",
-            name: "Write",
-            input: {
-              file_path: "/projects/002-nhs/ARC-002-ADR-001-v1.0.md",
-              content: "# ADR-001: Use microservices",
-            },
-          },
-        ],
-      },
-    };
-
-    const captured = await captureArtifactsFromMessage(msg);
-    expect(captured).toHaveLength(1);
-    expect(captured[0].documentId).toBe("ARC-002-ADR-001-v1.0");
-    expect(captured[0].sequenceNum).toBe(1);
   });
 });

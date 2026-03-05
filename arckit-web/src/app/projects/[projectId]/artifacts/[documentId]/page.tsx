@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getArtifact, type Artifact } from "@/lib/store";
 
 export default function ArtifactPage({
   params,
@@ -10,18 +11,12 @@ export default function ArtifactPage({
   params: Promise<{ projectId: string; documentId: string }>;
 }) {
   const { projectId, documentId } = use(params);
-  const [artifact, setArtifact] = useState<any>(null);
+  const [artifact, setArtifact] = useState<Artifact | null>(null);
 
   useEffect(() => {
-    fetch(`/api/projects/${projectId}/artifacts`)
-      .then((r) => r.json())
-      .then((data) => {
-        const found = data.artifacts.find(
-          (a: any) => a.documentId === decodeURIComponent(documentId)
-        );
-        setArtifact(found);
-      });
-  }, [projectId, documentId]);
+    const found = getArtifact(decodeURIComponent(documentId));
+    setArtifact(found ?? null);
+  }, [documentId]);
 
   if (!artifact) return <div className="p-8">Loading...</div>;
 
