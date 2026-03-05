@@ -83,5 +83,8 @@ arckit-gemini/docs/
 docs/articles/
 .tmp*
 
+# ArcKit Web - unignore src/lib/ (caught by Python lib/ rule above)
+!arckit-web/src/lib/
+
 # Git worktrees
 .worktrees/
