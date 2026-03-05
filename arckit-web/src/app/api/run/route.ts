@@ -1,8 +1,7 @@
 import { loadCommand } from "@/lib/commands";
 import { loadTemplate } from "@/lib/templates";
-import { buildAgentPrompt, runCommand, type StreamMessage } from "@/lib/agent-runner";
+import { buildAgentPrompt, runCommand } from "@/lib/agent-runner";
 import { buildProjectContext } from "@/lib/project-context";
-import { captureArtifactsFromMessage } from "@/lib/artifact-capture";
 import { db } from "@/db";
 import { projects, artifacts } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -32,14 +31,13 @@ export async function POST(req: Request) {
   const template = loadTemplate(commandName);
 
   // Build project context from database
-  const allProjects = db.select().from(projects).all();
+  const allProjects = await db.select().from(projects);
   const allArtifacts = projectId
-    ? db
+    ? await db
         .select()
         .from(artifacts)
         .where(eq(artifacts.projectId, projectId))
-        .all()
-    : db.select().from(artifacts).all();
+    : await db.select().from(artifacts);
 
   const projectContext = buildProjectContext(
     allProjects.map((p) => ({
@@ -64,38 +62,21 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const capturedArtifacts: Array<{
-          documentId: string;
-          documentType: string;
-          title: string;
-        }> = [];
-
         const result = await runCommand({
           commandName,
           prompt: fullPrompt,
           apiKey,
           model,
-          onMessage: (message: StreamMessage) => {
+          onMessage: (message) => {
             // Forward the message to the client via SSE
             const data = `data: ${JSON.stringify(message)}\n\n`;
             controller.enqueue(encoder.encode(data));
-
-            // Capture any ArcKit artifacts written by the agent
-            const arts = captureArtifactsFromMessage(message);
-            for (const art of arts) {
-              capturedArtifacts.push({
-                documentId: art.documentId,
-                documentType: art.documentType,
-                title: art.title,
-              });
-            }
           },
         });
 
         const done = `data: ${JSON.stringify({
           type: "done",
           result,
-          artifacts: capturedArtifacts,
         })}\n\n`;
         controller.enqueue(encoder.encode(done));
       } catch (error: unknown) {

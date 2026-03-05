@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import Anthropic from "@anthropic-ai/sdk";
 
 /**
  * Commands that need web research tools in addition to base tools.
@@ -47,28 +47,7 @@ export function buildAgentPrompt(
 }
 
 // ---------------------------------------------------------------------------
-// Streaming message types emitted by `claude --print --output-format stream-json`
-// ---------------------------------------------------------------------------
-
-export interface AssistantMessage {
-  type: "assistant";
-  message: {
-    content: Array<{ type: "text"; text: string } | { type: "tool_use"; name: string; input: unknown }>;
-  };
-}
-
-export interface ResultMessage {
-  type: "result";
-  result: string;
-  cost_usd: number;
-  duration_ms: number;
-  num_turns: number;
-}
-
-export type StreamMessage = AssistantMessage | ResultMessage | { type: string; [key: string]: unknown };
-
-// ---------------------------------------------------------------------------
-// Command runner
+// Command runner using Anthropic Messages API
 // ---------------------------------------------------------------------------
 
 export interface RunCommandOptions {
@@ -76,128 +55,49 @@ export interface RunCommandOptions {
   commandName: string;
   /** The fully-built prompt (output of buildAgentPrompt). */
   prompt: string;
-  /** Anthropic API key — passed via ANTHROPIC_API_KEY env var. */
+  /** Anthropic API key. */
   apiKey: string;
   /** Override the model (defaults to claude-sonnet-4-6). */
   model?: string;
-  /** Working directory for the claude process. */
-  cwd?: string;
-  /** Called for every streaming JSON message from the CLI. */
-  onMessage?: (message: StreamMessage) => void;
+  /** Called for every streaming message. */
+  onMessage?: (message: { type: string; [key: string]: unknown }) => void;
 }
 
 /**
- * Run an ArcKit command by spawning `claude --print` with streaming JSON
- * output.
+ * Run an ArcKit command using the Anthropic Messages API with streaming.
  *
- * This uses the Claude Code CLI in non-interactive print mode, which is the
- * supported programmatic interface for v2.x of the `@anthropic-ai/claude-code`
- * package.  The CLI is invoked with:
- *
- *   claude -p --output-format stream-json \
- *          --model <model> \
- *          --permission-mode acceptEdits \
- *          --allowedTools <tools...> \
- *          "<prompt>"
- *
- * Each line of stdout is a JSON object describing a streaming event.
- * The final event has `type: "result"` and contains the result text.
+ * Streams the response via the SDK and calls `onMessage` for each text
+ * chunk. Returns the full concatenated text at the end.
  */
 export async function runCommand(options: RunCommandOptions): Promise<string> {
-  const {
-    commandName,
-    prompt,
-    apiKey,
-    model = "claude-sonnet-4-6",
-    cwd,
-    onMessage,
-  } = options;
+  const { prompt, apiKey, model, onMessage } = options;
 
-  const tools = getToolsForCommand(commandName);
+  const client = new Anthropic({ apiKey });
 
-  return new Promise<string>((resolve, reject) => {
-    const args = [
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--model",
-      model,
-      "--permission-mode",
-      "acceptEdits",
-      "--allowedTools",
-      ...tools,
-      prompt,
-    ];
-
-    const child = spawn("claude", args, {
-      env: {
-        ...process.env,
-        ANTHROPIC_API_KEY: apiKey,
-        // Unset CLAUDECODE to avoid "nested session" guard
-        CLAUDECODE: "",
-      },
-      cwd: cwd || process.cwd(),
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let resultText = "Command completed.";
-    let stderrChunks: string[] = [];
-    let buffer = "";
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      buffer += chunk.toString();
-      // Each message is a single JSON line
-      const lines = buffer.split("\n");
-      // Keep the last (possibly incomplete) line in the buffer
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          const msg: StreamMessage = JSON.parse(trimmed);
-          onMessage?.(msg);
-          if (msg.type === "result" && "result" in msg) {
-            resultText = (msg as ResultMessage).result;
-          }
-        } catch {
-          // Non-JSON output — skip
-        }
-      }
-    });
-
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderrChunks.push(chunk.toString());
-    });
-
-    child.on("error", (err) => {
-      reject(new Error(`Failed to spawn claude CLI: ${err.message}`));
-    });
-
-    child.on("close", (code) => {
-      // Process any remaining buffer content
-      if (buffer.trim()) {
-        try {
-          const msg: StreamMessage = JSON.parse(buffer.trim());
-          onMessage?.(msg);
-          if (msg.type === "result" && "result" in msg) {
-            resultText = (msg as ResultMessage).result;
-          }
-        } catch {
-          // ignore
-        }
-      }
-
-      if (code !== 0 && code !== null) {
-        const stderr = stderrChunks.join("");
-        reject(
-          new Error(
-            `claude CLI exited with code ${code}${stderr ? `: ${stderr.slice(0, 500)}` : ""}`
-          )
-        );
-        return;
-      }
-      resolve(resultText);
-    });
+  const stream = client.messages.stream({
+    model: model || "claude-sonnet-4-6",
+    max_tokens: 16384,
+    messages: [{ role: "user", content: prompt }],
+    system:
+      "You are ArcKit, an Enterprise Architecture Governance assistant. " +
+      "Generate architecture documents following the provided template exactly. " +
+      "Use the Document Control format. Output the complete document in a single markdown code block.",
   });
+
+  let fullText = "";
+
+  stream.on("text", (text) => {
+    fullText += text;
+    onMessage?.({ type: "assistant", text });
+  });
+
+  const finalMessage = await stream.finalMessage();
+
+  onMessage?.({
+    type: "result",
+    result: fullText,
+    usage: finalMessage.usage,
+  });
+
+  return fullText;
 }

@@ -8,6 +8,6 @@ export async function GET(
   { params }: { params: Promise<{ projectId: string }> }
 ) {
   const { projectId } = await params;
-  const results = db.select().from(artifacts).where(eq(artifacts.projectId, projectId)).all();
+  const results = await db.select().from(artifacts).where(eq(artifacts.projectId, projectId));
   return NextResponse.json({ artifacts: results });
 }

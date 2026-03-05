@@ -4,7 +4,7 @@ import { projects } from "@/db/schema";
 import { slugify } from "@/lib/doc-id";
 
 export async function GET() {
-  const allProjects = db.select().from(projects).all();
+  const allProjects = await db.select().from(projects);
   return NextResponse.json({ projects: allProjects });
 }
 
@@ -14,21 +14,21 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
 
   // Find next project ID
-  const existing = db.select().from(projects).all();
+  const existing = await db.select().from(projects);
   const maxId = existing.reduce((max, p) => {
     const num = parseInt(p.projectId, 10);
     return num > max ? num : max;
   }, 0);
   const projectId = String(maxId + 1).padStart(3, "0");
 
-  db.insert(projects).values({
+  await db.insert(projects).values({
     projectId,
     name: slug,
     slug,
     displayName: name,
     createdAt: now,
     updatedAt: now,
-  }).run();
+  });
 
   return NextResponse.json({ projectId, slug, displayName: name }, { status: 201 });
 }

@@ -5,8 +5,9 @@ import {
   extractWriteCalls,
   captureArtifactsFromMessage,
   type ParsedDocId,
+  type StreamMessage,
+  type AssistantMessage,
 } from "./artifact-capture";
-import type { StreamMessage, AssistantMessage } from "./agent-runner";
 
 // ---------------------------------------------------------------------------
 // Mock the database so tests don't require SQLite
@@ -14,9 +15,7 @@ import type { StreamMessage, AssistantMessage } from "./agent-runner";
 vi.mock("@/db", () => ({
   db: {
     insert: () => ({
-      values: () => ({
-        run: vi.fn(),
-      }),
+      values: () => Promise.resolve(),
     }),
   },
 }));
@@ -167,9 +166,6 @@ describe("extractWriteCalls", () => {
     const msg: StreamMessage = {
       type: "result",
       result: "done",
-      cost_usd: 0.01,
-      duration_ms: 1000,
-      num_turns: 1,
     };
 
     const writes = extractWriteCalls(msg);
@@ -239,7 +235,7 @@ describe("captureArtifactsFromMessage", () => {
     vi.clearAllMocks();
   });
 
-  it("captures an artifact from a Write tool call with an ArcKit filename", () => {
+  it("captures an artifact from a Write tool call with an ArcKit filename", async () => {
     const msg: AssistantMessage = {
       type: "assistant",
       message: {
@@ -257,7 +253,7 @@ describe("captureArtifactsFromMessage", () => {
       },
     };
 
-    const captured = captureArtifactsFromMessage(msg);
+    const captured = await captureArtifactsFromMessage(msg);
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
       projectId: "001",
@@ -269,7 +265,7 @@ describe("captureArtifactsFromMessage", () => {
     expect(captured[0].content).toContain("Business Requirements");
   });
 
-  it("ignores Write calls to non-ArcKit files", () => {
+  it("ignores Write calls to non-ArcKit files", async () => {
     const msg: AssistantMessage = {
       type: "assistant",
       message: {
@@ -286,24 +282,21 @@ describe("captureArtifactsFromMessage", () => {
       },
     };
 
-    const captured = captureArtifactsFromMessage(msg);
+    const captured = await captureArtifactsFromMessage(msg);
     expect(captured).toHaveLength(0);
   });
 
-  it("handles result messages gracefully", () => {
+  it("handles result messages gracefully", async () => {
     const msg: StreamMessage = {
       type: "result",
       result: "All done",
-      cost_usd: 0.05,
-      duration_ms: 5000,
-      num_turns: 3,
     };
 
-    const captured = captureArtifactsFromMessage(msg);
+    const captured = await captureArtifactsFromMessage(msg);
     expect(captured).toHaveLength(0);
   });
 
-  it("captures multi-instance document with sequence number", () => {
+  it("captures multi-instance document with sequence number", async () => {
     const msg: AssistantMessage = {
       type: "assistant",
       message: {
@@ -320,7 +313,7 @@ describe("captureArtifactsFromMessage", () => {
       },
     };
 
-    const captured = captureArtifactsFromMessage(msg);
+    const captured = await captureArtifactsFromMessage(msg);
     expect(captured).toHaveLength(1);
     expect(captured[0].documentId).toBe("ARC-002-ADR-001-v1.0");
     expect(captured[0].sequenceNum).toBe(1);

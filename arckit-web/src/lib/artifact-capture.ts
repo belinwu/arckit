@@ -1,6 +1,5 @@
 import { db } from "@/db";
 import { artifacts } from "@/db/schema";
-import type { StreamMessage, AssistantMessage } from "./agent-runner";
 
 // ---------------------------------------------------------------------------
 // Document ID parsing
@@ -88,16 +87,31 @@ export interface WriteToolCall {
 }
 
 /**
+ * Message types for streaming. These are simplified versions now that
+ * we use the Anthropic SDK directly instead of the Claude CLI.
+ */
+export interface StreamMessage {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface AssistantMessage {
+  type: "assistant";
+  message: {
+    content: Array<{ type: "text"; text: string } | { type: "tool_use"; name: string; input: unknown }>;
+  };
+}
+
+/**
  * Extract Write tool calls from a single stream message.
  *
- * The `claude --print --output-format stream-json` format emits assistant
- * messages whose `content` array may contain `tool_use` blocks.  We look
+ * The assistant messages may contain `tool_use` blocks.  We look
  * for blocks where `name === "Write"`.
  */
 export function extractWriteCalls(message: StreamMessage): WriteToolCall[] {
   if (message.type !== "assistant") return [];
 
-  const assistantMsg = message as AssistantMessage;
+  const assistantMsg = message as unknown as AssistantMessage;
   const content = assistantMsg.message?.content;
   if (!Array.isArray(content)) return [];
 
@@ -140,9 +154,9 @@ export interface CapturedArtifact {
  * exists the unique constraint will cause an error — callers should handle
  * or use onConflictDoUpdate if needed.
  */
-export function saveArtifact(artifact: CapturedArtifact): void {
+export async function saveArtifact(artifact: CapturedArtifact): Promise<void> {
   const now = new Date().toISOString();
-  db.insert(artifacts)
+  await db.insert(artifacts)
     .values({
       projectId: artifact.projectId,
       documentId: artifact.documentId,
@@ -155,8 +169,7 @@ export function saveArtifact(artifact: CapturedArtifact): void {
       version: artifact.version ?? "1.0",
       createdAt: now,
       updatedAt: now,
-    })
-    .run();
+    });
 }
 
 /**
@@ -167,9 +180,9 @@ export function saveArtifact(artifact: CapturedArtifact): void {
  * Returns the saved artifact metadata or null if the file is not an
  * ArcKit artifact.
  */
-export function captureIfArtifact(
+export async function captureIfArtifact(
   write: WriteToolCall
-): CapturedArtifact | null {
+): Promise<CapturedArtifact | null> {
   // Try parsing from the file path first (most reliable)
   const parsed = parseDocumentId(write.filePath);
   if (!parsed) return null;
@@ -184,7 +197,7 @@ export function captureIfArtifact(
     version: parsed.version,
   };
 
-  saveArtifact(artifact);
+  await saveArtifact(artifact);
   return artifact;
 }
 
@@ -193,18 +206,18 @@ export function captureIfArtifact(
 // ---------------------------------------------------------------------------
 
 /**
- * Given a stream message from the Claude CLI, extract any Write tool calls,
+ * Given a stream message, extract any Write tool calls,
  * check if they are ArcKit artifacts, and save them to the database.
  *
  * Returns an array of captured artifacts (may be empty).
  */
-export function captureArtifactsFromMessage(
+export async function captureArtifactsFromMessage(
   message: StreamMessage
-): CapturedArtifact[] {
+): Promise<CapturedArtifact[]> {
   const writes = extractWriteCalls(message);
   const captured: CapturedArtifact[] = [];
   for (const w of writes) {
-    const art = captureIfArtifact(w);
+    const art = await captureIfArtifact(w);
     if (art) captured.push(art);
   }
   return captured;

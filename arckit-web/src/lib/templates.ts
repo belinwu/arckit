@@ -2,16 +2,20 @@ import fs from "fs";
 import path from "path";
 
 /**
- * Resolve the path to arckit-plugin/templates/ relative to the repo root.
+ * Resolve the path to the templates directory.
  *
- * The arckit-web app lives at <repo-root>/arckit-web/, so from the app's
- * working directory we go up one level to reach the repo root, then into
- * arckit-plugin/templates/.
- *
- * We try process.cwd() first (reliable in both Next.js and vitest), then
- * fall back to __dirname-based resolution.
+ * Resolution order:
+ * 1. Bundled data (data/templates/) — for Vercel deployments
+ * 2. cwd-based (../arckit-plugin/templates/) — for local dev
+ * 3. __dirname-based fallback
  */
 function getTemplatesDir(): string {
+  // Check bundled data first (for Vercel)
+  const bundled = path.resolve(process.cwd(), "data", "templates");
+  if (fs.existsSync(bundled)) {
+    return bundled;
+  }
+
   // Try cwd-based resolution: cwd is typically <repo-root>/arckit-web/
   const cwdBased = path.resolve(process.cwd(), "..", "arckit-plugin", "templates");
   if (fs.existsSync(cwdBased)) {
@@ -25,7 +29,7 @@ function getTemplatesDir(): string {
   }
 
   throw new Error(
-    `Cannot find arckit-plugin/templates/ directory. Tried:\n  ${cwdBased}\n  ${dirnameBased}`
+    `Cannot find templates directory. Tried:\n  ${bundled}\n  ${cwdBased}\n  ${dirnameBased}`
   );
 }
 
