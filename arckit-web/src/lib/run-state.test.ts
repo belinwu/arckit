@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  runReducer,
+  runStateReducer,
   initialRunState,
   getPhaseStatus,
   type RunState,
@@ -14,7 +14,7 @@ describe("runReducer", () => {
   });
 
   it("transitions from idle to preparing on START", () => {
-    const state = runReducer(initialRunState, { type: "START" });
+    const state = runStateReducer(initialRunState, { type: "START" });
     expect(state.status).toBe("preparing");
     expect(state.startTime).toBeGreaterThan(0);
     expect(state.phaseStartTime).toBeGreaterThan(0);
@@ -29,7 +29,7 @@ describe("runReducer", () => {
       startTime: 1000,
       phaseStartTime: 1000,
     };
-    const state = runReducer(preparing, { type: "FIRST_TEXT", text: "Hello" });
+    const state = runStateReducer(preparing, { type: "FIRST_TEXT", text: "Hello" });
     expect(state.status).toBe("generating");
     expect(state.fullText).toBe("Hello");
     expect(state.tokenCount).toBe(Math.ceil(5 / 4));
@@ -45,7 +45,7 @@ describe("runReducer", () => {
       startTime: 1000,
       phaseStartTime: 1000,
     };
-    const state = runReducer(generating, { type: "TEXT", text: " world" });
+    const state = runStateReducer(generating, { type: "TEXT", text: " world" });
     expect(state.fullText).toBe("Hello world");
     expect(state.tokenCount).toBe(Math.ceil(11 / 4));
   });
@@ -59,7 +59,7 @@ describe("runReducer", () => {
       phaseStartTime: 1000,
     };
     const meta = { cost_usd: 0.01, duration_ms: 5000, num_turns: 1 };
-    const state = runReducer(generating, {
+    const state = runStateReducer(generating, {
       type: "RESULT",
       meta,
       fullText: "full result text",
@@ -77,7 +77,7 @@ describe("runReducer", () => {
       startTime: 1000,
       phaseStartTime: 1000,
     };
-    const state = runReducer(saving, {
+    const state = runStateReducer(saving, {
       type: "SAVED",
       documentId: "ARC-001-REQ-v1.0",
     });
@@ -93,7 +93,7 @@ describe("runReducer", () => {
         startTime: 1000,
         phaseStartTime: 1000,
       };
-      const state = runReducer(active, { type: "ERROR", error: "API failed" });
+      const state = runStateReducer(active, { type: "ERROR", error: "API failed" });
       expect(state.status).toBe("error");
       expect(state.error).toBe("API failed");
       expect(state.errorPhase).toBe(status);
@@ -107,12 +107,12 @@ describe("runReducer", () => {
       fullText: "lots of content",
       tokenCount: 500,
     };
-    const state = runReducer(complete, { type: "RESET" });
+    const state = runStateReducer(complete, { type: "RESET" });
     expect(state).toEqual(initialRunState);
   });
 
   it("ignores TEXT when not in generating state", () => {
-    const state = runReducer(initialRunState, { type: "TEXT", text: "stray" });
+    const state = runStateReducer(initialRunState, { type: "TEXT", text: "stray" });
     expect(state).toEqual(initialRunState);
   });
 
@@ -123,7 +123,7 @@ describe("runReducer", () => {
       startTime: 1000,
       phaseStartTime: 1000,
     };
-    const state = runReducer(saving, { type: "SAVED", documentId: null });
+    const state = runStateReducer(saving, { type: "SAVED", documentId: null });
     expect(state.status).toBe("complete");
     expect(state.savedDocumentId).toBeNull();
   });
