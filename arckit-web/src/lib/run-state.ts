@@ -42,9 +42,10 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-export function runReducer(state: RunState, action: RunAction): RunState {
+export function runStateReducer(state: RunState, action: RunAction): RunState {
   switch (action.type) {
     case "START":
+      if (state.status !== "idle") return state;
       return {
         ...initialRunState,
         status: "preparing",
@@ -93,7 +94,7 @@ export function runReducer(state: RunState, action: RunAction): RunState {
       };
 
     case "ERROR":
-      if (state.status === "idle" || state.status === "complete") return state;
+      if (state.status === "idle") return state;
       return {
         ...state,
         status: "error",
@@ -109,7 +110,7 @@ export function runReducer(state: RunState, action: RunAction): RunState {
   }
 }
 
-const PHASE_ORDER: PhaseId[] = ["preparing", "generating", "saving", "complete"];
+export const PHASE_ORDER: PhaseId[] = ["preparing", "generating", "saving", "complete"];
 
 export function getPhaseStatus(
   phaseId: PhaseId,

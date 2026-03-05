@@ -1,16 +1,24 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useReducer, useRef, useCallback, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { PhaseAccordion, type PhaseConfig } from "@/components/phase-accordion";
+import { StreamingPreview } from "@/components/streaming-preview";
+import { MarkdownPreview } from "@/components/markdown-preview";
 import { getApiKey } from "@/lib/api-key-store";
 import { parseDocumentId, titleForDoc } from "@/lib/artifact-capture";
 import { saveArtifact } from "@/lib/store";
-import { Play, Square, Loader2 } from "lucide-react";
+import {
+  runStateReducer,
+  initialRunState,
+  type PhaseId,
+  type RunState,
+} from "@/lib/run-state";
+import { Play, Square } from "lucide-react";
 
 interface CommandRunnerProps {
   commandName: string;
@@ -19,16 +27,90 @@ interface CommandRunnerProps {
   projectId: string;
 }
 
-interface OutputEntry {
-  id: number;
-  type: "text" | "tool" | "result" | "error";
-  content: string;
-  meta?: {
-    cost_usd?: number;
-    duration_ms?: number;
-    num_turns?: number;
-  };
+function formatTokens(count: number): string {
+  if (count === 0) return "";
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}k tokens`;
+  return `${count} tokens`;
 }
+
+/** Live elapsed-time counter that re-renders every second. */
+function ElapsedTimer({ startTime }: { startTime: number | null }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!startTime) return;
+    setElapsed(Math.floor((performance.now() - startTime) / 1000));
+    const id = setInterval(() => {
+      setElapsed(Math.floor((performance.now() - startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [startTime]);
+
+  if (!startTime) return null;
+  return <span>{elapsed}s</span>;
+}
+
+const PHASES: PhaseConfig[] = [
+  {
+    id: "preparing" as PhaseId,
+    label: "Preparing",
+    summary: (state: RunState) =>
+      state.status !== "preparing" && state.startTime
+        ? "Ready"
+        : undefined,
+    stats: (state: RunState) =>
+      state.status === "preparing" ? (
+        <ElapsedTimer startTime={state.phaseStartTime} />
+      ) : undefined,
+    body: () => (
+      <p className="text-xs text-muted-foreground">
+        Loading command and building prompt...
+      </p>
+    ),
+  },
+  {
+    id: "generating" as PhaseId,
+    label: "Generating",
+    summary: (state: RunState) =>
+      state.status !== "generating" && state.tokenCount > 0
+        ? formatTokens(state.tokenCount)
+        : undefined,
+    stats: (state: RunState) =>
+      state.status === "generating" ? (
+        <span className="flex items-center gap-2">
+          <span>{formatTokens(state.tokenCount)}</span>
+          <span className="text-muted-foreground/50">|</span>
+          <ElapsedTimer startTime={state.phaseStartTime} />
+        </span>
+      ) : undefined,
+    body: (state: RunState) =>
+      state.fullText ? <StreamingPreview text={state.fullText} /> : null,
+  },
+  {
+    id: "saving" as PhaseId,
+    label: "Saving",
+    summary: (state: RunState) => state.savedDocumentId || undefined,
+    stats: () => undefined,
+    body: () => (
+      <p className="text-xs text-muted-foreground">
+        Saving artifact to local storage...
+      </p>
+    ),
+  },
+  {
+    id: "complete" as PhaseId,
+    label: "Complete",
+    summary: () => undefined,
+    stats: () => undefined,
+    body: (state: RunState) => (
+      <MarkdownPreview
+        content={state.fullText}
+        documentId={state.savedDocumentId}
+        meta={state.resultMeta}
+      />
+    ),
+  },
+];
 
 export function CommandRunner({
   commandName,
@@ -37,40 +119,19 @@ export function CommandRunner({
   projectId,
 }: CommandRunnerProps) {
   const [userInput, setUserInput] = useState("");
-  const [running, setRunning] = useState(false);
-  const [output, setOutput] = useState<OutputEntry[]>([]);
+  const [state, dispatch] = useReducer(runStateReducer, initialRunState);
   const abortRef = useRef<AbortController | null>(null);
-  const outputEndRef = useRef<HTMLDivElement>(null);
-  const idCounter = useRef(0);
   const fullTextRef = useRef("");
+  const firstTextReceived = useRef(false);
 
-  const scrollToBottom = useCallback(() => {
-    outputEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+  const running =
+    state.status === "preparing" ||
+    state.status === "generating" ||
+    state.status === "saving";
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [output, scrollToBottom]);
-
-  function addEntry(
-    type: OutputEntry["type"],
-    content: string,
-    meta?: OutputEntry["meta"]
-  ) {
-    idCounter.current += 1;
-    setOutput((prev) => [
-      ...prev,
-      { id: idCounter.current, type, content, meta },
-    ]);
-  }
-
-  /**
-   * After a command finishes, attempt to parse the full output as an
-   * ArcKit artifact and save it to localStorage.
-   */
-  function trySaveArtifact(text: string) {
+  function trySaveArtifact(text: string): string | null {
     const parsed = parseDocumentId(text);
-    if (!parsed) return;
+    if (!parsed) return null;
 
     saveArtifact({
       projectId: parsed.projectId || projectId,
@@ -82,6 +143,8 @@ export function CommandRunner({
       version: parsed.version,
       createdAt: new Date().toISOString(),
     });
+
+    return parsed.documentId;
   }
 
   async function handleRun() {
@@ -90,10 +153,10 @@ export function CommandRunner({
 
     const trimmedInput = userInput.trim() || commandDescription;
 
-    setRunning(true);
-    setOutput([]);
-    idCounter.current = 0;
+    dispatch({ type: "RESET" });
+    dispatch({ type: "START" });
     fullTextRef.current = "";
+    firstTextReceived.current = false;
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -113,10 +176,11 @@ export function CommandRunner({
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        addEntry(
-          "error",
-          errData.error || `HTTP ${response.status}: ${response.statusText}`
-        );
+        dispatch({
+          type: "ERROR",
+          error:
+            errData.error || `HTTP ${response.status}: ${response.statusText}`,
+        });
         return;
       }
 
@@ -154,22 +218,16 @@ export function CommandRunner({
           }
         }
       }
-
-      // Try to save the full output as an artifact
-      if (fullTextRef.current) {
-        trySaveArtifact(fullTextRef.current);
-      }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        addEntry("text", "Command cancelled.");
+        dispatch({ type: "ERROR", error: "Command cancelled." });
       } else {
-        addEntry(
-          "error",
-          err instanceof Error ? err.message : "Unknown error"
-        );
+        dispatch({
+          type: "ERROR",
+          error: err instanceof Error ? err.message : "Unknown error",
+        });
       }
     } finally {
-      setRunning(false);
       abortRef.current = null;
     }
   }
@@ -181,30 +239,41 @@ export function CommandRunner({
       const text = data.text as string | undefined;
       if (text) {
         fullTextRef.current += text;
-        addEntry("text", text);
+        if (!firstTextReceived.current) {
+          firstTextReceived.current = true;
+          dispatch({ type: "FIRST_TEXT", text });
+        } else {
+          dispatch({ type: "TEXT", text });
+        }
       }
-    } else if (type === "result") {
-      const result = (data.result as string) || "";
+    } else if (type === "result" || type === "done") {
+      const result =
+        typeof data.result === "string" ? data.result : undefined;
       if (result) fullTextRef.current = result;
-      addEntry("result", result || "Done.", {
-        cost_usd: data.cost_usd as number,
-        duration_ms: data.duration_ms as number,
-        num_turns: data.num_turns as number,
+
+      dispatch({
+        type: "RESULT",
+        meta: {
+          cost_usd: data.cost_usd as number | undefined,
+          duration_ms: data.duration_ms as number | undefined,
+          num_turns: data.num_turns as number | undefined,
+        },
+        fullText: fullTextRef.current,
       });
-    } else if (type === "done") {
-      // Final done event from our API wrapper
-      if (typeof data.result === "string" && data.result) {
-        fullTextRef.current = data.result;
-        addEntry("result", data.result);
-      }
+
+      const docId = trySaveArtifact(fullTextRef.current);
+      dispatch({ type: "SAVED", documentId: docId });
     } else if (type === "error") {
-      addEntry("error", (data.error as string) || "Unknown error");
+      dispatch({
+        type: "ERROR",
+        error: (data.error as string) || "Unknown error",
+      });
     }
   }
 
-  function handleStop() {
+  const handleStop = useCallback(() => {
     abortRef.current?.abort();
-  }
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -255,69 +324,15 @@ export function CommandRunner({
 
       <Separator />
 
-      <ScrollArea className="flex-1">
-        <div className="space-y-2 p-4 font-mono text-sm">
-          {output.length === 0 && !running && (
-            <p className="py-8 text-center text-muted-foreground font-sans">
-              Output will appear here when you run a command.
-            </p>
-          )}
-          {running && output.length === 0 && (
-            <div className="flex items-center gap-2 py-4 text-muted-foreground font-sans">
-              <Loader2 className="size-4 animate-spin" />
-              Running command...
-            </div>
-          )}
-          {output.map((entry) => (
-            <div key={entry.id}>
-              {entry.type === "text" && (
-                <pre className="whitespace-pre-wrap break-words text-foreground">
-                  {entry.content}
-                </pre>
-              )}
-              {entry.type === "tool" && (
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <Loader2 className="size-3 animate-spin" />
-                  <span className="text-xs">{entry.content}</span>
-                </div>
-              )}
-              {entry.type === "result" && (
-                <div className="mt-2 space-y-2 rounded-md border bg-muted/50 p-3">
-                  <pre className="whitespace-pre-wrap break-words text-foreground">
-                    {entry.content}
-                  </pre>
-                  {entry.meta && (
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {entry.meta.cost_usd != null && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          ${entry.meta.cost_usd.toFixed(4)}
-                        </Badge>
-                      )}
-                      {entry.meta.duration_ms != null && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          {(entry.meta.duration_ms / 1000).toFixed(1)}s
-                        </Badge>
-                      )}
-                      {entry.meta.num_turns != null && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          {entry.meta.num_turns} turn
-                          {entry.meta.num_turns !== 1 ? "s" : ""}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              {entry.type === "error" && (
-                <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive">
-                  {entry.content}
-                </div>
-              )}
-            </div>
-          ))}
-          <div ref={outputEndRef} />
-        </div>
-      </ScrollArea>
+      <div className="flex-1 overflow-auto p-4">
+        {state.status === "idle" && (
+          <p className="py-8 text-center text-muted-foreground">
+            Output will appear here when you run a command.
+          </p>
+        )}
+
+        <PhaseAccordion runState={state} phases={PHASES} />
+      </div>
     </div>
   );
 }
