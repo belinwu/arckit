@@ -80,7 +80,7 @@ export function MarkdownPreview({
         </div>
       )}
 
-      <div className="prose prose-sm dark:prose-invert max-w-none rounded-md border p-4 overflow-auto max-h-[500px]">
+      <div className="arckit-markdown max-w-none rounded-md border p-4 overflow-auto max-h-[500px] text-sm leading-relaxed">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>
           {content}
         </ReactMarkdown>
