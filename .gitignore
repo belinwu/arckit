@@ -86,6 +86,7 @@ docs/articles/
 # ArcKit Web - unignore paths caught by broader rules above
 !arckit-web/src/lib/
 !arckit-web/src/app/api/projects/
+!arckit-web/src/app/projects/
 
 # Git worktrees
 .worktrees/
