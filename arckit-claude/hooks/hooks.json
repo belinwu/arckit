@@ -105,6 +105,11 @@
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/update-manifest.mjs",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/document-quality-gate.mjs",
+            "timeout": 5
           }
         ]
       }
