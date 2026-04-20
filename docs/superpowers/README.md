@@ -4,7 +4,7 @@ Internal design documents used by the Superpowers skill during feature developme
 
 ## Layout
 
-```
+```text
 docs/superpowers/
 ├── plans/       # Active implementation plans — deleted when the feature ships
 ├── specs/       # Active design specs    — deleted when the feature ships

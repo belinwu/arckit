@@ -9,12 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added (Community-contributed)
 
+> ⚠️ The 3 Austrian regulatory commands below are a seed contribution. The verification pass in #333 resolved the majority of `[NEEDS VERIFICATION]` markers with domain-authoritative citations (NISG BGBl. I Nr. 94/2025, VO 2023/2495 thresholds, three-tier CERT reporting, §107 BVergG accessibility). Remaining flagged items (DSB enforcement positions, Land competence boundaries, command-prompt internals) should still be reviewed by an Austrian practitioner (DPO / CISO / Vergabejurist) before external reliance. See #304 for the overlay design.
+
+- `/arckit.at-dsgvo` — [COMMUNITY] assess Austrian DSG / DSGVO obligations — Datenschutzbehörde patterns, §§12–13 DSG image processing, ELGA/GTelG health, §96a ArbVG employee monitoring, age 14 consent
+- `/arckit.at-nisg` — [COMMUNITY] assess Austrian NISG (idF BGBl. I Nr. 94/2025 — NIS2 transposition) — Essential/Important designation, three-tier CERT reporting (Sectoral → CERT.at → GovCERT), KSÖ, AT sectoral authorities
+- `/arckit.at-bvergg` — [COMMUNITY] generate Austrian BVergG 2018 procurement documentation — Oberschwellen/Unterschwellen (€221K / €443K / €5,538K per VO 2023/2495), ANKÖ, Bestbieterprinzip, BVwG review
 - `/arckit.fr-irn` — [COMMUNITY] structure an IRN (Indice de Résilience Numérique) self-assessment following the aDRI framework — 8 resilience pillars × 5 organisational layers. References the official methodology at gitlab.com/digitalresilienceinitiative/adri-irn rather than reproducing scoring criteria (CC BY-NC-ND 4.0 licence incompatible with ArcKit's MIT licence; living standard that evolves actively). Generates `ARC-{id}-IRN-v1.0.md` with scoring scaffold, pre-populated context from existing project artifacts, and clear handoff to the official aDRI evaluation grid (#322)
+
+Registered 3 new doc type codes (ATDSG, ATNISG, BVERGG) in both `arckit-claude/config/doc-types.mjs` and `arckit-claude/commands/pages.md` (dual-registration pattern established in #317). @gtonic added as Austrian domain maintainer; CODEOWNERS lines for `at-*` staged but left commented pending explicit acceptance.
 
 ### Fixed
 
 - Extensions: propagate the `.guide-status.community` CSS rule to `pages-template.html` so community-contributed guides render with the correct visual marker in the generated dashboard (#327)
 - `sync-guides` hook: register the 18 EU/FR community guide stems so `/arckit.pages` includes them when syncing guide cards into the dashboard
+- AT DSG template drift: `arckit-claude/templates/at-dsgvo-template.md` was left at the 220-line seed after #333 enriched only the `.arckit/` copy, which would have served plugin and extension users the pre-verification template. Mirrored the enriched `.arckit/` copy into `arckit-claude/` and re-ran `scripts/converter.py` to propagate to the 4 extension copies
 
 ### Docs
 
